@@ -1,6 +1,7 @@
 # Per-case results
 
 What each of the three runs of the 60 top-package tasks (`benchmark/cases_top.json`) did without and with yul, for both coding agents in the paper: Claude Code with Claude Opus 5.5 (`benchmark/claude-code-opus/`, runs `rep1` to `rep3`) and OpenCode with DeepSeek V4.1 Flash (`benchmark/runs-opencode-deepseek-docker-v3/`, runs `run-01` to `run-03`).
+Runs with yul use yul 0.0.21.
 The classification matches the paper's table of stale and mitigated runs.
 
 "After a lookup" means the agent queried the registry or ran a version-resolving command (`npm install pkg`, `cargo add pkg`, `go get pkg@latest`, ...) before the write that produced the final version, and "from memory" means it did not.
