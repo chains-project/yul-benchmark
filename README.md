@@ -26,6 +26,12 @@ Each agent has three runs per task and condition.
 | `benchmark/run_case.sh` | Runs one task under one condition with Claude Code |
 | `benchmark/run_case_opencode.sh` | Same, with OpenCode |
 | `benchmark/run_all.sh` | Runs every task under both conditions in parallel |
+| `benchmark/run_case_opencode_deepseek.sh` | Runs one task under one condition with OpenCode + DeepSeek, isolated in a container |
+| `benchmark/run_all_opencode_deepseek.sh` | Runs every task under both conditions with OpenCode + DeepSeek; resumable |
+| `benchmark/run_deepseek_pilot.sh` | Orchestrator used for the earlier DeepSeek pilot |
+| `benchmark/Dockerfile.opencode-sandbox`, `benchmark/opencode-sandbox.def` | Container images for the OpenCode runs (Docker / Apptainer) |
+| `benchmark/analyze_top_opencode.py` | Ground-truth analysis of OpenCode runs |
+| `benchmark/latest_version_oracle.py` | Looks up the latest release of a package on its registry |
 | `benchmark/analyze_runs.py` | Classifies each run as stale, already latest or mitigated |
 | `benchmark/top_packages.sh` | Fetches the most-used packages per ecosystem from ecosyste.ms |
 | `benchmark/Dockerfile` | Image the agents run in, with a toolchain for every ecosystem |
@@ -53,6 +59,17 @@ python3 benchmark/analyze_runs.py <output_dir>
 `run_case.sh` mounts the yul binary from a fixed host path (`YUL_BIN`).
 Point it at your own yul build before running.
 
-### Open Code
+### OpenCode + DeepSeek
 
-TODO
+Each run executes in its own container with no cache shared between runs, so `nohook` runs never see yul.
+With `hook`, yul is loaded through the published [`opencode-yul`](https://www.npmjs.com/package/opencode-yul) plugin (pinned to 0.0.21; override with `OPENCODE_YUL_VERSION`).
+Only the `deepseek` entry of your OpenCode auth store (`~/.local/share/opencode/auth.json`, from `opencode auth login`) is copied into the container.
+
+```
+docker build -t yul-opencode-sandbox -f benchmark/Dockerfile.opencode-sandbox benchmark/
+benchmark/run_all_opencode_deepseek.sh benchmark/cases_top.json <output_dir> [jobs] [repeats] [timeout_seconds]
+python3 benchmark/analyze_runs.py <output_dir>
+```
+
+The launcher skips runs that already have a `transcript.jsonl`, so rerunning the same command resumes an interrupted batch.
+`benchmark/runs-opencode-deepseek-docker-v3/` was produced with `jobs=6 repeats=3 timeout=900`.
