@@ -1,0 +1,3 @@
+__pycache__/
+.env
+benchmark/opencode-sandbox.sif

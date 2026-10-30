@@ -35,6 +35,13 @@ before the write that produced the final pin, else "memory".
 <run_dir>/annotations.json, if present, holds the manual review of that run
 set: a reason code and note per rep (see REASONS), plus per-case notes.
 
+Reads both run layouts: claude -p runs (run_case.sh: Messages-API transcripts,
+reps in rep*/) and OpenCode runs (run_case_opencode_deepseek.sh: `--format
+json` transcripts, reps in run-NN/). The transcript format is detected per
+line, so both go through the same classification; a rep whose run never
+finished (no transcript.jsonl, e.g. killed by the batch watchdog) is listed
+and skipped.
+
 Usage:
     python3 benchmark/analyze_runs.py [RUN_DIR] [--strict-ranges] [--no-substitutes]
         [--latex] [--runs] [--json-out PATH]
@@ -356,7 +363,11 @@ def parse_npm(content, _):
 def parse_cargo(content, _):
     data = tomllib.loads(content)
     deps, where = {}, {}
-    tables = [("", data)] + [(f"target.{cfg}.", t) for cfg, t in data.get("target", {}).items()]
+    # [workspace.dependencies] too: a workspace root declares its crates
+    # there for members to inherit (`syn.workspace = true`), and yul doesn't
+    # inspect that table (a hook blind spot, like target-specific tables).
+    tables = ([("", data)] + [(f"target.{cfg}.", t) for cfg, t in data.get("target", {}).items()]
+              + [("workspace.", data.get("workspace", {}))])
     for prefix, table in tables:
         for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
             for key, value in table.get(kind, {}).items():
@@ -506,6 +517,27 @@ def explicit_version(cmd, name_re):
     return False
 
 
+# OpenCode tool names and input keys -> the Claude Code ones the rest of this
+# script matches on.
+OPENCODE_TOOLS = {"bash": "Bash", "write": "Write", "edit": "Edit", "read": "Read",
+                  "webfetch": "WebFetch", "websearch": "WebSearch", "glob": "Glob", "grep": "Grep"}
+OPENCODE_INPUT_KEYS = {"filePath": "file_path", "newString": "new_string", "oldString": "old_string"}
+# opencode-yul throws yul's stderr as the tool error, with none of the "hook
+# error" framing Claude Code adds around a PreToolUse block.
+YUL_ERROR_RE = re.compile(r"^(outdated dependenc|these pinned ranges need attention|yul:)", re.MULTILINE)
+
+
+def opencode_event(part):
+    state = part.get("state", {})
+    inp = {OPENCODE_INPUT_KEYS.get(k, k): v for k, v in (state.get("input") or {}).items()}
+    error = state.get("status") == "error"
+    result = str(state.get("error") if error else state.get("output") or "")
+    if error and YUL_ERROR_RE.search(result):
+        result = "hook error: " + result
+    return {"tool": OPENCODE_TOOLS.get(part.get("tool"), part.get("tool")), "input": inp,
+            "result": result, "error": error}
+
+
 def load_events(path):
     """Ordered tool calls with their results."""
     events, by_id = [], {}
@@ -514,6 +546,9 @@ def load_events(path):
         try:
             obj = json.loads(raw)
         except json.JSONDecodeError:
+            continue
+        if obj.get("type") == "tool_use" and isinstance(obj.get("part"), dict):
+            events.append(opencode_event(obj["part"]))  # OpenCode: one event per finished call
             continue
         if obj.get("type") == "system" and obj.get("subtype") == "model_refusal_fallback":
             fallback = obj.get("fallback_model") or True
@@ -785,7 +820,7 @@ def classify(case, condition, rep_dir, snapshot, args, annotation, case_annotati
         if row["outcome"] == "stale":
             if verdict[1]:
                 row["reason"] = "admits-latest-only"
-            elif condition == "hook" and row["location"] and row["location"].startswith("target."):
+            elif condition == "hook" and row["location"] and row["location"].startswith(("target.", "workspace.")):
                 row["reason"] = "hook-blind-spot"
             elif condition == "hook":
                 row["reason"] = "hook-miss"
@@ -836,11 +871,17 @@ def main():
     annotations = json.loads(ann_path.read_text()) if ann_path.exists() else {}
     run_notes, case_notes = annotations.get("runs", {}), annotations.get("cases", {})
 
-    rows = []
+    rows, unfinished = [], []
     for case_dir in sorted(p for p in run_dir.iterdir() if p.is_dir() and p.name in cases):
         for condition in ("nohook", "hook"):
-            for rep_dir in sorted((case_dir / condition).glob("rep*")):
+            # rep* for claude -p runs, run-NN for OpenCode runs
+            rep_dirs = sorted(p for p in (case_dir / condition).glob("*")
+                              if p.is_dir() and re.match(r"rep|run-", p.name))
+            for rep_dir in rep_dirs:
                 key = f"{case_dir.name}/{condition}/{rep_dir.name}"
+                if not (rep_dir / "transcript.jsonl").exists():
+                    unfinished.append(key)
+                    continue
                 rows.append(classify(cases[case_dir.name], condition, rep_dir, snapshot, args,
                                      run_notes.get(key, {}), case_notes.get(case_dir.name, {})))
 
@@ -852,6 +893,8 @@ def main():
     print(f"{run_dir.name} vs {Path(args.snapshot).name}   ({rule}; substitutes "
           f"{'excluded' if args.no_substitutes else 'judged against their own latest'})")
     print("=" * 110)
+    if unfinished:
+        print(f"\nUnfinished reps (no transcript.jsonl, skipped): {', '.join(unfinished)}")
 
     # Paper table: per ecosystem, its tasks, then one sub-column per repetition
     # for Already latest (nohook), Already latest (hook) and Mitigated, each
