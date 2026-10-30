@@ -28,10 +28,7 @@ Each agent has three runs per task and condition.
 | `benchmark/run_all.sh` | Runs every task under both conditions in parallel |
 | `benchmark/run_case_opencode_deepseek.sh` | Runs one task under one condition with OpenCode + DeepSeek, isolated in a container |
 | `benchmark/run_all_opencode_deepseek.sh` | Runs every task under both conditions with OpenCode + DeepSeek; resumable |
-| `benchmark/run_deepseek_pilot.sh` | Orchestrator used for the earlier DeepSeek pilot |
 | `benchmark/Dockerfile.opencode-sandbox`, `benchmark/opencode-sandbox.def` | Container images for the OpenCode runs (Docker / Apptainer) |
-| `benchmark/analyze_top_opencode.py` | Ground-truth analysis of OpenCode runs |
-| `benchmark/latest_version_oracle.py` | Looks up the latest release of a package on its registry |
 | `benchmark/analyze_runs.py` | Classifies each run as stale, already latest or mitigated |
 | `benchmark/top_packages.sh` | Fetches the most-used packages per ecosystem from ecosyste.ms |
 | `benchmark/Dockerfile` | Image the agents run in, with a toolchain for every ecosystem |
